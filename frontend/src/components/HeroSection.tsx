@@ -40,11 +40,13 @@ const HeroSection = () => {
                 Donate Now
               </Button>
               <Button 
-                variant="outline" 
-                className="border-2 border-purple-600 text-purple-600 hover:bg-purple-50 px-10 py-4 text-xl font-semibold rounded-full transition-all duration-300 transform hover:scale-105"
-              >
-                Explore Platform
-              </Button>
+  variant="outline" 
+  className="border-2 border-purple-600 text-purple-600 hover:bg-purple-50 px-10 py-4 text-xl font-semibold rounded-full transition-all duration-300 transform hover:scale-105"
+  onClick={() => window.open("https://quizitt-web.vercel.app/", "_blank")}
+>
+  Explore Platform
+</Button>
+
             </div>
           </div>
           <div className={`relative transform transition-all duration-1000 delay-300 ${isVisible ? 'translate-x-0 opacity-100' : 'translate-x-10 opacity-0'}`}>

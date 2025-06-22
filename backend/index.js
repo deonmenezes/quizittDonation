@@ -11,8 +11,8 @@ const PORT = process.env.PORT || 5000;
 
 // Use CORS middleware
 app.use(cors({
-    // origin: 'https://www.quizitt.com',
-    origin: 'http://localhost:8080',    
+    origin: 'https://www.quizitt.com',
+    // origin: 'http://localhost:8080',    
     // origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true

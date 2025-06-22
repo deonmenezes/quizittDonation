@@ -19,7 +19,7 @@ app.use(cors({
 }));
 
 app.use(express.json());
-app.use('/api/v1/payment', paymentRoutes);
+app.use('/api/donate', paymentRoutes);
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URL)

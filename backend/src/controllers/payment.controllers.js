@@ -1,166 +1,83 @@
-import Razorpay from 'razorpay';
-import crypto from 'crypto';
-import Payment from '../models/payment.model.js'; // Assuming you have a Payment model
-import dotenv from 'dotenv';
+import SelfDonation from '../models/payment.model.js';
 
-dotenv.config();
+// Controller to record a self-reported donation
+export const recordSelfDonation = async (req, res) => {
+    const { donorName, amount, paymentMethodIndicated } = req.body;
 
-const razorpayInstance = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
-
-export const createRazorpayOrder = async (req, res) => {
-    const { amount, donorName } = req.body; // Receive donorName from frontend
-
-    if (!amount || amount < 1) {
-        return res.status(400).json({ message: 'Amount is required and must be at least ₹1.' });
-    }
-
-    if (!donorName) { // Validate donorName
+    // Basic validation
+    if (!donorName || donorName.trim() === '') {
         return res.status(400).json({ message: 'Donor name is required.' });
     }
-
-    const options = {
-        amount: amount * 100, // Convert rupees to paise
-        currency: 'INR',
-        receipt: `receipt_order_${Date.now()}`,
-        notes: {
-            purpose: 'Donation for Quizitt.com Education',
-            source: 'web_donation_page',
-            donorName: donorName // Store donor name in Razorpay notes (optional, but good for reference)
-        },
-    };
-
-    try {
-        const order = await razorpayInstance.orders.create(options);
-        const newPayment = new Payment({
-            razorpayOrderId: order.id,
-            amount: order.amount, // amount in paise from Razorpay response
-            currency: order.currency,
-            status: order.status, // 'created'
-            donorName: donorName // Store donor name in your database
-        });
-        await newPayment.save();
-        res.status(200).json(order);
-    } catch (error) {
-        console.error('Error creating Razorpay order:', error);
-        res.status(500).json({ message: 'Failed to create Razorpay order', error: error.message });
+    if (typeof amount !== 'number' || amount <= 0) {
+        return res.status(400).json({ message: 'A valid donation amount (greater than 0) is required.' });
     }
-};
-
-export const verifyRazorpayPayment = async (req, res) => {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, donorName } = req.body; // Also receive donorName here to re-associate
-
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-        return res.status(400).json({ message: 'Missing payment verification parameters.' });
-    }
-
-    const body = razorpay_order_id + "|" + razorpay_payment_id;
-
-    const expectedSignature = crypto
-        .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-        .update(body.toString())
-        .digest('hex');
-
-    const isAuthentic = expectedSignature === razorpay_signature;
-
-    if (isAuthentic) {
-        try {
-            // Fetch full payment details from Razorpay for robust verification
-            const paymentDetails = await razorpayInstance.payments.fetch(razorpay_payment_id);
-
-            // Find the payment record in your database and update its status and other details
-            const dbPayment = await Payment.findOneAndUpdate(
-                { razorpayOrderId: razorpay_order_id },
-                {
-                    razorpayPaymentId: razorpay_payment_id,
-                    status: paymentDetails.status, // Should be 'captured' if successful
-                    method: paymentDetails.method,
-                    razorpaySignature: razorpay_signature, // Save signature for audit
-                    donorName: donorName // Update donor name in case it wasn't saved or needs confirmation
-                },
-                { new: true }
-            );
-
-            if (!dbPayment) {
-                console.warn(`Payment record not found for order ID: ${razorpay_order_id}. This should not happen if order creation saves.`);
-                return res.status(404).json({ message: 'Payment verified, but corresponding record not found in database for update.' });
-            }
-
-            res.status(200).json({ message: 'Payment verified successfully', payment: dbPayment });
-        } catch (error) {
-            console.error('Error fetching payment details or updating DB after verification:', error);
-            res.status(500).json({ message: 'Payment verified, but failed to process details or update database.', error: error.message });
-        }
-    } else {
-        res.status(400).json({ message: 'Payment verification failed: Signature mismatch' });
-    }
-};
-
-export const getPaymentDetails = async (req, res) => {
-    const { paymentId } = req.params;
-
-    if (!paymentId) {
-        return res.status(400).json({ message: 'Payment ID is required.' });
+    // paymentMethodIndicated is optional for now, but good to capture if available
+    const validPaymentMethods = ['upi', 'bank_transfer', 'other'];
+    if (paymentMethodIndicated && !validPaymentMethods.includes(paymentMethodIndicated)) {
+        return res.status(400).json({ message: 'Invalid payment method indicated.' });
     }
 
     try {
-        const payment = await Payment.findOne({ razorpayPaymentId: paymentId });
-
-        if (payment) {
-            return res.status(200).json(payment);
-        }
-
-        const razorpayPayment = await razorpayInstance.payments.fetch(paymentId);
-        res.status(200).json(razorpayPayment);
-    } catch (error) {
-        console.error('Error fetching payment details:', error);
-        if (error.statusCode === 400 && error.error.code === 'BAD_REQUEST_ERROR') {
-            return res.status(404).json({ message: 'Payment not found or invalid Payment ID.' });
-        }
-        res.status(500).json({ message: 'Failed to fetch payment details', error: error.message });
-    }
-};
-
-export const getAllPayments = async (req, res) => {
-    try {
-        const payments = await Payment.find({}); // Find all payments in the database
-        res.status(200).json(payments); // Send the list of payments as a response
-    } catch (error) {
-        console.error('Error fetching all payments:', error);
-        res.status(500).json({ message: 'Failed to fetch all payments', error: error.message });
-    }
-};
-
-// NEW CONTROLLER FUNCTION FOR CAMPAIGN PROGRESS
-export const getCampaignProgress = async (req, res) => {
-    try {
-        // Find all successfully captured payments
-        const capturedPayments = await Payment.find({ status: 'captured' });
-
-        let totalRaisedAmount = 0;
-        const uniqueDonors = new Set();
-
-        capturedPayments.forEach(payment => {
-            totalRaisedAmount += payment.amount; // amount is already in paise, sum it up
-            if (payment.donorName) {
-                uniqueDonors.add(payment.donorName.toLowerCase()); // Use lowercase for uniqueness
-            }
+        const newSelfDonation = new SelfDonation({
+            donorName,
+            amount,
+            paymentMethodIndicated: paymentMethodIndicated || 'other', // Default to 'other' if not provided
+            status: 'reported', // Initial status when user clicks "I've Completed My Donation!"
         });
 
-        // Convert totalRaisedAmount from paise to rupees for display
-        const totalRaisedRupees = totalRaisedAmount / 100;
+        await newSelfDonation.save();
+
+        res.status(201).json({
+            message: 'Thank you for reporting your donation! Your support is greatly appreciated.',
+            donation: newSelfDonation,
+        });
+    } catch (error) {
+        console.error('Error recording self-reported donation:', error);
+        res.status(500).json({ message: 'Failed to record donation. Please try again.', error: error.message });
+    }
+};
+
+// Controller to get all self-reported donations (for admin/tracking)
+export const getAllSelfDonations = async (req, res) => {
+    try {
+        const donations = await SelfDonation.find({}).sort({ reportedAt: -1 }); // Sort by most recent
+        res.status(200).json(donations);
+    } catch (error) {
+        console.error('Error fetching all self-reported donations:', error);
+        res.status(500).json({ message: 'Failed to fetch donations.', error: error.message });
+    }
+};
+
+// Controller to get total amount raised and donor count from self-reported donations
+export const getDonationCampaignProgress = async (req, res) => {
+    try {
+        // Aggregate to sum amounts and count unique donors
+        const result = await SelfDonation.aggregate([
+            {
+                $group: {
+                    _id: null, // Group all documents together
+                    totalRaised: { $sum: "$amount" },
+                    uniqueDonors: { $addToSet: "$donorName" } // Get unique donor names
+                }
+            }
+        ]);
+
+        let totalRaised = 0;
+        let donorCount = 0;
+
+        if (result.length > 0) {
+            totalRaised = result[0].totalRaised;
+            donorCount = result[0].uniqueDonors.length;
+        }
 
         res.status(200).json({
-            totalRaised: totalRaisedRupees,
-            donorCount: uniqueDonors.size,
-            // You can optionally add a 'goal' here if it's dynamic, or keep it static on the frontend
-            // For now, it's better to keep the 'goal' in the frontend's static props unless it's a dynamic setting in your backend.
+            totalRaised,
+            donorCount,
+            message: "Campaign progress fetched successfully."
         });
 
     } catch (error) {
-        console.error('Error fetching campaign progress:', error);
-        res.status(500).json({ message: 'Failed to fetch campaign progress', error: error.message });
+        console.error('Error fetching donation campaign progress:', error);
+        res.status(500).json({ message: 'Failed to fetch campaign progress.', error: error.message });
     }
 };

@@ -12,12 +12,11 @@ interface PaymentData {
   amount: number; // Amount is in the smallest currency unit (e.g., paise for INR)
   currency: string;
   status: string;
-  donorName: string; // New field from your provided data
+  donorName: string; // Explicitly required as per your provided data
   createdAt: { "$date": string };
   updatedAt: { "$date": string };
-  // contact?: string; // These might still exist in your DB but are not needed for donor identification in this scenario
-  // email?: string;   // if donorName is always present and sufficient.
-  method?: string; // Make optional as it might not be consistently used for leaderboards
+  __v: number; // Added based on your provided JSON
+  method?: string; // Make optional
   razorpayPaymentId?: string; // Make optional
   razorpaySignature?: string; // Make optional
 }
@@ -309,7 +308,7 @@ const LeaderboardSection = () => {
               <p className="text-sm sm:text-base text-gray-600 mb-3 sm:mb-4 px-2">
                 Every contribution, no matter the size, makes a real difference in a child's educational journey.
               </p>
-             
+              
             </div>
           </CardContent>
         </Card>

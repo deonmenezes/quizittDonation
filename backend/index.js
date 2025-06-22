@@ -9,11 +9,10 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 
-// Use CORS middleware
 app.use(cors({
-    // origin: 'https://quizitt.com',
-    // origin: 'http://localhost:8080',
-    origin: '*',
+    origin: function (origin, callback) {
+        callback(null, origin); // reflect the request origin
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));

@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Trophy, Medal, Award, Calendar, Clock } from 'lucide-react';
+import { Trophy, Medal, Award, Calendar, Clock, Axis3DIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import axios from 'axios'
 
 // Define a type for your payment data from MongoDB
 interface PaymentData {
@@ -64,7 +65,7 @@ const LeaderboardSection = () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`${BACKEND_URL}/api/v1/payment/payments`);
+        const response = await axios.get(`${BACKEND_URL}/api/v1/payment/payments`);
         if (!response.ok) {
           const errorData = await response.json();
           throw new Error(errorData.message || "Failed to fetch payments.");

@@ -126,14 +126,14 @@ const RewardsSection = () => {
           ))}
         </div>
         
-        <div className={`text-center mt-16 transform transition-all duration-1000 delay-600 ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
+        {/* <div className={`text-center mt-16 transform transition-all duration-1000 delay-600 ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
           <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-2xl p-8 max-w-2xl mx-auto">
             <h3 className="text-xl font-bold text-gray-800 mb-3">🎯 Reward Progress Tracker</h3>
             <p className="text-gray-600">
               Track your progress towards earning rewards and see how your contribution directly impacts children's education!
             </p>
           </div>
-        </div>
+        </div> */}
       </div>
     </section>
   );

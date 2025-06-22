@@ -2,6 +2,7 @@ import { BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Link } from 'react-router-dom';
 import { useState } from 'react';
+import logo from '../../public/image.png'
 
 const Header = () => {
   const navigate = useNavigate();
@@ -26,7 +27,7 @@ const Header = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Link to="/" className="w-12 h-12 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl flex items-center justify-center transform hover:scale-105 transition-transform duration-300">
-              <BookOpen className="w-7 h-7 text-white" />
+              <img src={logo} />
             </Link>
             <Link to="/">
               <div>

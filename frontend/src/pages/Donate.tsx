@@ -3,7 +3,7 @@ import { Button } from './../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './../components/ui/card';
 import { Badge } from './../components/ui/badge';
 import { useToast } from './../hooks/use-toast';
-import { Heart, Shield, Mail, Receipt, Share2, Facebook, Twitter, ArrowLeft } from 'lucide-react';
+import { Heart, Shield, Facebook, Twitter, ArrowLeft, Share2, Receipt } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Header from './../components/Header';
 import Footer from './../components/Footer';
@@ -11,6 +11,9 @@ import Footer from './../components/Footer';
 const Donate = () => {
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState('');
+  // State variable for donor name only
+  const [donorName, setDonorName] = useState('');
+
   const [recentDonations] = useState([
     { amount: 1200, donor: "Sarah J.", time: "2 min ago" },
     { amount: 600, donor: "Anonymous", time: "5 min ago" },
@@ -21,14 +24,10 @@ const Donate = () => {
 
   const presetAmounts = [600, 1200, 3000, 6000, 12000];
 
-  // Correctly access the environment variable
-  // Ensure you have a .env file in your project root with VITE_BACKEND_URL and VITE_RAZORPAY_KEY_ID
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
   const RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
 
-
   useEffect(() => {
-    // Load Razorpay script dynamically
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/checkout.js';
     script.async = true;
@@ -39,17 +38,14 @@ const Donate = () => {
     };
   }, []);
 
-  // Define window.Razorpay for TypeScript if it's not globally declared
   declare global {
     interface Window {
-      Razorpay: any; // Or a more specific type if you have one
+      Razorpay: any;
     }
   }
 
   const handlePaymentSuccess = async (response: any) => {
-    // This function will now send verification data to your backend
     try {
-      // Corrected typo: import.meta.VITE_BACKEND_URL
       const verifyRes = await fetch(`${BACKEND_URL}/api/v1/payment/verify-payment`, {
         method: "POST",
         headers: {
@@ -59,6 +55,7 @@ const Donate = () => {
           razorpay_order_id: response.razorpay_order_id,
           razorpay_payment_id: response.razorpay_payment_id,
           razorpay_signature: response.razorpay_signature,
+          donorName: donorName // Pass donorName to backend for storage
         })
       });
 
@@ -67,10 +64,12 @@ const Donate = () => {
       if (verifyRes.ok) {
         toast({
           title: "Payment Successful! 🎉",
-          description: "Your donation has been successfully processed and verified. Thank M",
+          description: "Your donation has been successfully processed and verified. Thank you for your generosity!",
         });
         setSelectedAmount(null);
         setCustomAmount('');
+        // Clear donor name after successful donation
+        setDonorName('');
       } else {
         toast({
           title: "Payment Verification Failed",
@@ -99,20 +98,27 @@ const Donate = () => {
       return;
     }
 
+    if (!donorName.trim()) { // Check if donorName is empty or just whitespace
+      toast({
+        title: "Missing Information",
+        description: "Please fill in your name to proceed with the donation.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     toast({
       title: "Initiating Payment",
       description: "Redirecting to Razorpay for secure payment processing...",
     });
 
     try {
-      // Step 1: Create an order on your backend
-      // Corrected typo: import.meta.VITE_BACKEND_URL
       const res = await fetch(`${BACKEND_URL}/api/v1/payment/order`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ amount: amount }) // Send amount in Rupees to backend
+        body: JSON.stringify({ amount: amount, donorName: donorName }) // Pass donorName to backend
       });
 
       if (!res.ok) {
@@ -120,28 +126,24 @@ const Donate = () => {
         throw new Error(errorData.message || "Failed to create order on backend.");
       }
 
-      const orderData = await res.json(); // This 'orderData' contains the Razorpay order details
+      const orderData = await res.json();
 
-      // Step 2: Open Razorpay checkout with the order details
       const options = {
-        key: RAZORPAY_KEY_ID, // Use the environment variable for Razorpay Key ID
-        amount: orderData.amount, // Amount in paise from backend order
+        key: RAZORPAY_KEY_ID,
+        amount: orderData.amount,
         currency: orderData.currency,
         name: "Quizitt.com Education",
         description: "Support interactive learning for children",
-        order_id: orderData.id, // The order ID from your backend
+        order_id: orderData.id,
         handler: function (response: any) {
-          // This handler is called on successful payment from Razorpay
           console.log("Razorpay Payment Response:", response);
-          handlePaymentSuccess(response); // Call your verification function
+          handlePaymentSuccess(response);
         },
         prefill: {
-          name: "John Doe", // Placeholder: In a real app, get this from user
-          email: "john@example.com", // Placeholder: In a real app, get this from user
-          contact: "9999999999" // Placeholder: In a real app, get this from user
+          name: donorName, // Only prefill name
         },
         theme: {
-          color: "#6B46C1" // A purple shade to match your theme
+          color: "#6B46C1"
         },
         modal: {
           ondismiss: function () {
@@ -213,14 +215,14 @@ const Donate = () => {
 
         <div className="container mx-auto max-w-5xl relative z-10">
           <div className="text-center mb-10 md:mb-16 text-white">
-            <Button
+            {/* <Button
               onClick={() => navigate('/')}
               variant="outline"
               className="mb-6 md:mb-8 border-white/30 text-white hover:bg-white/10 rounded-full px-4 py-2 text-sm md:text-base"
             >
               <ArrowLeft className="w-3 h-3 md:w-4 md:h-4 mr-2" />
-              Back to Campaign
-            </Button>
+              Back 
+            </Button> */}
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 md:mb-6">Make Your Impact</h1>
             <p className="text-base sm:text-lg md:text-xl opacity-90 max-w-3xl mx-auto leading-relaxed">
               Choose your contribution amount and help us provide revolutionary education technology to children worldwide
@@ -228,7 +230,7 @@ const Donate = () => {
           </div>
 
           {/* Live donation feed */}
-          <div className="mb-8 md:mb-12">
+          {/* <div className="mb-8 md:mb-12">
             <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 sm:p-6 text-white">
               <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2">
                 <div className="w-2 h-2 sm:w-3 sm:h-3 bg-green-400 rounded-full animate-pulse"></div>
@@ -242,7 +244,7 @@ const Donate = () => {
                 ))}
               </div>
             </div>
-          </div>
+          </div> */}
 
           <Card className="bg-white/95 backdrop-blur-sm shadow-2xl border-0 rounded-3xl p-4 sm:p-6 md:p-8">
             <CardHeader className="text-center pb-6 sm:pb-8">
@@ -306,6 +308,23 @@ const Donate = () => {
                 )}
               </div>
 
+              {/* Donor Details Input Fields (only Name) */}
+              <div className="space-y-4 sm:space-y-6 pt-4 border-t border-gray-100">
+                <h3 className="text-lg sm:text-xl font-semibold text-gray-800 text-center">Your Details</h3>
+                <div>
+                  <label htmlFor="donor-name" className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                  <input
+                    id="donor-name"
+                    type="text"
+                    value={donorName}
+                    onChange={(e) => setDonorName(e.target.value)}
+                    placeholder="Your Name"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base transition-all duration-300"
+                  />
+                </div>
+              </div>
+
+
               {/* Impact preview */}
               {selectedTotal > 0 && (
                 <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-2xl p-6 sm:p-8 border border-purple-200">
@@ -331,7 +350,7 @@ const Donate = () => {
               <Button
                 onClick={handleDonate}
                 className="w-full bg-gradient-to-r from-purple-600 via-blue-600 to-indigo-600 hover:from-purple-700 hover:via-blue-700 hover:to-indigo-700 text-white py-4 sm:py-5 md:py-6 text-base sm:text-lg md:text-xl font-semibold rounded-2xl shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                disabled={!selectedAmount && (!customAmount || parseInt(customAmount) < 100)}
+                disabled={!selectedAmount && (!customAmount || parseInt(customAmount) < 100) || !donorName.trim()} // Updated validation
               >
                 <Heart className="w-5 h-5 sm:w-6 sm:h-6 mr-2 sm:mr-3" />
                 Donate Securely with Razorpay
@@ -372,10 +391,6 @@ const Donate = () => {
                   <div className="flex items-center gap-1.5 sm:gap-2">
                     <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
                     <span>Secure & Encrypted</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 sm:gap-2">
-                    <Mail className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
-                    <span>Email Receipt</span>
                   </div>
                   <div className="flex items-center gap-1.5 sm:gap-2">
                     <Receipt className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />

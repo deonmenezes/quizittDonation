@@ -3,53 +3,150 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Trophy, Medal, Award, Calendar, Clock } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+
+// Define a type for your payment data from MongoDB
+interface PaymentData {
+  _id: { "$oid": string };
+  razorpayOrderId: string;
+  amount: number; // Amount is in the smallest currency unit (e.g., paise for INR)
+  currency: string;
+  status: string;
+  donorName: string; // New field from your provided data
+  createdAt: { "$date": string };
+  updatedAt: { "$date": string };
+  // contact?: string; // These might still exist in your DB but are not needed for donor identification in this scenario
+  // email?: string;   // if donorName is always present and sufficient.
+  method?: string; // Make optional as it might not be consistently used for leaderboards
+  razorpayPaymentId?: string; // Make optional
+  razorpaySignature?: string; // Make optional
+}
+
+// Define a type for a donor on the leaderboard
+interface LeaderboardDonor {
+  name: string;
+  amount: number; // Amount in Rupees for display
+  rank: number;
+  avatar: string;
+  recent: boolean;
+}
 
 const LeaderboardSection = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [timeFilter, setTimeFilter] = useState<'week' | 'month' | 'all'>('all');
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardDonor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const { toast } = useToast();
+
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
   useEffect(() => {
-    // Intersection Observer to trigger animations when the component enters the viewport
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
           setIsVisible(true);
         }
       },
-      { threshold: 0.2 } // Trigger when 20% of the element is visible
+      { threshold: 0.2 }
     );
 
     const element = document.getElementById('leaderboard');
     if (element) observer.observe(element);
 
     return () => {
-      // Cleanup the observer when the component unmounts
       if (element) observer.disconnect();
     };
   }, []);
 
-  // Static data for top donors, categorized by time filter
-  const topDonors = {
-    week: [
-      { name: "Anonymous Hero", amount: 5000, rank: 1, avatar: "https://placehold.co/60x60/FFD700/000000?text=AH", recent: true },
-      { name: "Sarah Johnson", amount: 3000, rank: 2, avatar: "https://placehold.co/60x60/C0C0C0/000000?text=SJ", recent: true },
-      { name: "Raj Patel", amount: 1200, rank: 3, avatar: "https://placehold.co/60x60/CD7F32/000000?text=RP", recent: false }
-    ],
-    month: [
-      { name: "Dr. Priya Sharma", amount: 12000, rank: 1, avatar: "https://placehold.co/60x60/800080/FFFFFF?text=PS", recent: false },
-      { name: "Anonymous Hero", amount: 8000, rank: 2, avatar: "https://placehold.co/60x60/FFD700/000000?text=AH", recent: true },
-      { name: "Meera Singh", amount: 6000, rank: 3, avatar: "https://placehold.co/60x60/ADFF2F/000000?text=MS", recent: false }
-    ],
-    all: [
-      { name: "Anonymous Champion", amount: 25000, rank: 1, avatar: "https://placehold.co/60x60/FFD700/000000?text=AC", recent: false },
-      { name: "Priya Sharma", amount: 18000, rank: 2, avatar: "https://placehold.co/60x60/C0C0C0/000000?text=PS", recent: false },
-      { name: "Raj Patel", amount: 15000, rank: 3, avatar: "https://placehold.co/60x60/CD7F32/000000?text=RP", recent: false },
-      { name: "Meera Singh", amount: 12000, rank: 4, avatar: "https://placehold.co/60x60/ADFF2F/000000?text=MS", recent: false },
-      { name: "Anonymous Hero", amount: 10000, rank: 5, avatar: "https://placehold.co/60x60/FFD700/000000?text=AH", recent: true }
-    ]
+  useEffect(() => {
+    const fetchLeaderboardData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/v1/payment/payments`);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Failed to fetch payments.");
+        }
+        const data: PaymentData[] = await response.json();
+
+        const processedDonations = processPaymentsForLeaderboard(data, timeFilter);
+        setLeaderboardData(processedDonations);
+
+      } catch (err: any) {
+        console.error("Error fetching leaderboard data:", err);
+        setError(err.message || "Failed to load leaderboard. Please try again later.");
+        toast({
+          title: "Leaderboard Error",
+          description: err.message || "Could not load donation leaderboard.",
+          variant: "destructive"
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchLeaderboardData();
+  }, [timeFilter, BACKEND_URL, toast]);
+
+  // Helper function to process payments into leaderboard format
+  const processPaymentsForLeaderboard = (payments: PaymentData[], filter: 'week' | 'month' | 'all'): LeaderboardDonor[] => {
+    const now = new Date();
+    let filteredPayments = payments;
+
+    if (filter === 'week') {
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(now.getDate() - 7); // Calculate date for one week ago
+      filteredPayments = payments.filter(payment => new Date(payment.createdAt.$date) >= oneWeekAgo);
+    } else if (filter === 'month') {
+      const oneMonthAgo = new Date();
+      oneMonthAgo.setMonth(now.getMonth() - 1); // Calculate date for one month ago
+      filteredPayments = payments.filter(payment => new Date(payment.createdAt.$date) >= oneMonthAgo);
+    }
+
+    // Aggregate donations by donorName
+    const donorMap = new Map<string, { totalAmount: number, name: string, lastDonationTime: Date }>();
+
+    filteredPayments.forEach(payment => {
+      const amountInRupees = payment.amount / 100; // Convert paise to Rupees
+      const donorName = payment.donorName || "Anonymous Donor"; // Use donorName directly, fallback to "Anonymous Donor"
+
+      if (donorMap.has(donorName)) {
+        const existing = donorMap.get(donorName)!;
+        existing.totalAmount += amountInRupees;
+        existing.lastDonationTime = new Date(Math.max(existing.lastDonationTime.getTime(), new Date(payment.createdAt.$date).getTime()));
+        donorMap.set(donorName, existing);
+      } else {
+        donorMap.set(donorName, {
+          totalAmount: amountInRupees,
+          name: donorName,
+          lastDonationTime: new Date(payment.createdAt.$date)
+        });
+      }
+    });
+
+    const sortedDonors = Array.from(donorMap.values())
+      .sort((a, b) => b.totalAmount - a.totalAmount)
+      .slice(0, 5); // Get top 5 donors
+
+    // Map to LeaderboardDonor format
+    const leaderboardEntries: LeaderboardDonor[] = sortedDonors.map((donor, index) => {
+      const isRecent = (now.getTime() - donor.lastDonationTime.getTime()) < (24 * 60 * 60 * 1000); // within last 24 hours
+      return {
+        name: donor.name === "Anonymous" ? "Anonymous Donor" : donor.name,
+        amount: donor.totalAmount,
+        rank: index + 1,
+        // Generate avatar based on donor.name (using name directly for seed)
+        avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(donor.name)}&radius=50`,
+        recent: isRecent
+      };
+    });
+
+    return leaderboardEntries;
   };
 
-  // Function to determine rank icon based on rank
   const getRankIcon = (rank: number) => {
     if (rank === 1) return <Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-500" />;
     if (rank === 2) return <Medal className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400" />;
@@ -57,7 +154,6 @@ const LeaderboardSection = () => {
     return <span className="text-base sm:text-lg font-bold text-gray-600">#{rank}</span>;
   };
 
-  // Function to determine background color based on rank
   const getRankColor = (rank: number) => {
     if (rank === 1) return "bg-gradient-to-r from-yellow-100 to-yellow-200 text-yellow-800 border-yellow-300";
     if (rank === 2) return "bg-gradient-to-r from-gray-100 to-gray-200 text-gray-800 border-gray-300";
@@ -65,7 +161,6 @@ const LeaderboardSection = () => {
     return "bg-gradient-to-r from-blue-50 to-purple-50 text-purple-700 border-purple-200";
   };
 
-  // Function to get icon for filter buttons
   const getFilterIcon = (filter: string) => {
     switch (filter) {
       case 'week': return <Clock className="w-3 h-3 sm:w-4 sm:h-4" />;
@@ -74,7 +169,7 @@ const LeaderboardSection = () => {
     }
   };
 
-  const currentDonors = topDonors[timeFilter];
+  const getChildrenCount = (amount: number) => Math.floor(amount / 600); // Assuming 600 is the cost per child per year
 
   return (
     <section id="leaderboard" className="py-12 sm:py-16 md:py-20 px-4 bg-gradient-to-br from-purple-50 to-blue-50 relative overflow-hidden font-inter">
@@ -128,77 +223,93 @@ const LeaderboardSection = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 sm:px-8 pb-4 sm:pb-8">
-            <div className="space-y-4 sm:space-y-6">
-              {currentDonors.map((donor, index) => (
-                <div
-                  key={`${donor.name}-${index}`}
-                  className={`flex flex-col sm:flex-row items-center justify-between p-4 sm:p-6 rounded-2xl transition-all duration-300 hover:shadow-lg transform hover:-translate-y-1 ${
-                    donor.rank <= 3
-                      ? getRankColor(donor.rank)
-                      : 'bg-gradient-to-r from-gray-50 to-blue-50 border border-gray-200'
-                  }`}
-                  style={{
-                    animationDelay: `${index * 100}ms`, // Staggered animation for each donor
-                    animation: isVisible ? 'fadeInUp 0.6s ease-out forwards' : 'none'
-                  }}
-                >
-                  <div className="flex items-center space-x-4 sm:space-x-6 w-full sm:w-auto mb-3 sm:mb-0">
-                    {/* Rank Icon */}
-                    <div className="flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 flex-shrink-0">
-                      {getRankIcon(donor.rank)}
-                    </div>
-                    {/* Donor Avatar and Info */}
-                    <div className="flex items-center space-x-3 sm:space-x-4">
-                      <div className="relative flex-shrink-0">
-                        <img
-                          src={donor.avatar}
-                          alt={donor.name}
-                          className="w-10 h-10 sm:w-14 sm:h-14 rounded-full object-cover ring-2 ring-white shadow-lg"
-                          // Fallback for broken image URLs using placehold.co
-                          onError={(e) => {
-                            e.currentTarget.src = `https://placehold.co/60x60/CCCCCC/000000?text=${donor.name.charAt(0)}`;
-                          }}
-                        />
-                        {donor.recent && (
-                          <div className="absolute -top-0.5 -right-0.5 w-3 h-3 sm:w-4 sm:h-4 bg-green-500 rounded-full border-1.5 border-white animate-pulse"></div>
-                        )}
+            {loading && (
+              <div className="text-center py-8">
+                <p className="text-gray-600 text-lg">Loading amazing supporters...</p>
+                <div className="spinner mt-4"></div> {/* Add a CSS spinner if you have one */}
+              </div>
+            )}
+            {error && (
+              <div className="text-center py-8 text-red-600">
+                <p className="text-lg">{error}</p>
+                <p className="text-sm">Please try refreshing the page.</p>
+              </div>
+            )}
+            {!loading && !error && leaderboardData.length === 0 && (
+              <div className="text-center py-8 text-gray-600">
+                <p className="text-lg">No donations found for this period yet.</p>
+                <p className="text-md">Be the first to make an impact!</p>
+              </div>
+            )}
+            {!loading && !error && leaderboardData.length > 0 && (
+              <div className="space-y-4 sm:space-y-6">
+                {leaderboardData.map((donor, index) => (
+                  <div
+                    key={`${donor.name}-${index}`}
+                    className={`flex flex-col sm:flex-row items-center justify-between p-4 sm:p-6 rounded-2xl transition-all duration-300 hover:shadow-lg transform hover:-translate-y-1 ${
+                      donor.rank <= 3
+                        ? getRankColor(donor.rank)
+                        : 'bg-gradient-to-r from-gray-50 to-blue-50 border border-gray-200'
+                    }`}
+                    style={{
+                      animationDelay: `${index * 100}ms`,
+                      animation: isVisible ? 'fadeInUp 0.6s ease-out forwards' : 'none'
+                    }}
+                  >
+                    <div className="flex items-center space-x-4 sm:space-x-6 w-full sm:w-auto mb-3 sm:mb-0">
+                      {/* Rank Icon */}
+                      <div className="flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 flex-shrink-0">
+                        {getRankIcon(donor.rank)}
                       </div>
-                      <div>
-                        <div className="font-bold text-base sm:text-lg text-gray-800 flex items-center gap-1.5">
-                          {donor.name}
+                      {/* Donor Avatar and Info */}
+                      <div className="flex items-center space-x-3 sm:space-x-4">
+                        <div className="relative flex-shrink-0">
+                          <img
+                            src={donor.avatar}
+                            alt={donor.name}
+                            className="w-10 h-10 sm:w-14 sm:h-14 rounded-full object-cover ring-2 ring-white shadow-lg"
+                            onError={(e) => {
+                              // Fallback to a generic initial avatar if the DiceBear API fails or URL is bad
+                              e.currentTarget.src = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(donor.name)}&radius=50`;
+                            }}
+                          />
                           {donor.recent && (
-                            <Badge className="bg-green-100 text-green-700 text-xs px-1.5 py-0.5">Recent</Badge>
+                            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 sm:w-4 sm:h-4 bg-green-500 rounded-full border-1.5 border-white animate-pulse"></div>
                           )}
                         </div>
-                        <div className="text-xs sm:text-sm text-gray-600">
-                          Empowered {Math.floor(donor.amount / 600)} children with education
+                        <div>
+                          <div className="font-bold text-base sm:text-lg text-gray-800 flex items-center gap-1.5">
+                            {donor.name}
+                            {donor.recent && (
+                              <Badge className="bg-green-100 text-green-700 text-xs px-1.5 py-0.5">Recent</Badge>
+                            )}
+                          </div>
+                          <div className="text-xs sm:text-sm text-gray-600">
+                            Will Empower {getChildrenCount(donor.amount)} children with education
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                  {/* Donation Amount and Supporter Type */}
-                  <div className="text-center sm:text-right w-full sm:w-auto">
-                    <div className="font-bold text-xl sm:text-2xl bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-                      ₹{donor.amount.toLocaleString()}
+                    {/* Donation Amount and Supporter Type */}
+                    <div className="text-center sm:text-right w-full sm:w-auto">
+                      <div className="font-bold text-xl sm:text-2xl bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
+                        ₹{donor.amount.toLocaleString()}
+                      </div>
+                      <div className="text-xs sm:text-sm text-gray-500">
+                        {donor.rank === 1 ? '🏆 Champion' : donor.rank === 2 ? '🥈 Hero' : donor.rank === 3 ? '🥉 Star' : 'Supporter'}
+                      </div>
                     </div>
-                    <div className="text-xs sm:text-sm text-gray-500">
-                      {donor.rank === 1 ? '🏆 Champion' : donor.rank === 2 ? '🥈 Hero' : donor.rank === 3 ? '🥉 Star' : 'Supporter'}
-                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
             {/* Call to Action at the bottom of the leaderboard */}
             <div className="mt-8 sm:mt-12 text-center bg-gradient-to-r from-purple-100 to-blue-100 rounded-2xl p-6 sm:p-8">
               <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-2 sm:mb-3">🌟 Join Our Community of Change-Makers!</h3>
               <p className="text-sm sm:text-base text-gray-600 mb-3 sm:mb-4 px-2">
                 Every contribution, no matter the size, makes a real difference in a child's educational journey.
               </p>
-              <div className="flex flex-col sm:flex-row justify-center items-center space-y-2 sm:space-y-0 sm:space-x-4 text-xs sm:text-sm text-gray-600">
-                <span>💝 243 Total Supporters</span>
-                <span>📚 1000+ Students Helped</span>
-                <span>🌍 50+ Countries Reached</span>
-              </div>
+             
             </div>
           </CardContent>
         </Card>

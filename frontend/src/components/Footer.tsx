@@ -65,7 +65,7 @@ const Footer = () => {
           </div>
         </div>
         
-        <div className="border-t border-gray-700 pt-8">
+        {/* <div className="border-t border-gray-700 pt-8">
           <div className="flex flex-wrap justify-center items-center gap-8 mb-6">
             <div className="flex items-center space-x-2 text-purple-400">
               <TrendingUp className="w-5 h-5" />
@@ -82,7 +82,7 @@ const Footer = () => {
           </div>
           <div className="text-center">
           </div>
-        </div>
+        </div> */}
       </div>
     </footer>
   );
